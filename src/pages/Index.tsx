@@ -1,622 +1,544 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useTransition } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api } from '@/services/api'
-import { Category } from '@/types'
-import { CategoryIcon } from '@/components/CategoryIcon'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
+import { searchService } from '@/services/searchService'
+import { listService } from '@/services/listService'
+import { useAuth } from '@/contexts/AuthContext'
+import { useToast } from '@/hooks/use-toast'
+import { Professional, ProfessionalCategory } from '@/types'
 import {
   Search,
   MapPin,
-  CheckCircle2,
   Star,
+  ExternalLink,
+  Phone,
+  Bookmark,
+  BookmarkCheck,
+  CheckCircle2,
+  Building,
+  Globe,
+  SlidersHorizontal,
+  Info,
+  Key,
   ShieldCheck,
-  FileText,
-  MessageSquare,
-  Award,
-  ArrowRight,
-  TrendingUp,
-  Clock,
   Sparkles,
+  ArrowRight,
+  RefreshCw,
 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export default function Index() {
+  const { user } = useAuth()
+  const { toast } = useToast()
   const navigate = useNavigate()
-  const [categories, setCategories] = useState<Category[]>([])
-  const [loading, setLoading] = useState(true)
 
-  // Search state
-  const [searchTerm, setSearchTerm] = useState('')
-  const [cep, setCep] = useState('')
-
+  // Se o usuário não estiver logado, a rota de busca interna requer autenticação
+  // Embora o RouteGuard cuide disso, podemos garantir o redirect amigável
   useEffect(() => {
-    let mounted = true
-    api.getCategories().then((data) => {
-      if (mounted) {
-        setCategories(data)
-        setLoading(false)
-      }
-    })
-    return () => {
-      mounted = false
+    if (!user) {
+      navigate('/entrar')
     }
+  }, [user, navigate])
+
+  const [termo, setTermo] = useState('')
+  const [localidade, setLocalidade] = useState('')
+  const [categoria, setCategoria] = useState<string>('Todos')
+  const [results, setResults] = useState<Professional[]>([])
+  const [totalResults, setTotalResults] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [isDemoMode, setIsDemoMode] = useState(true)
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(6)
+
+  const categories = ['Todos', ...searchService.getAllCategories()]
+
+  // Carregar lista de IDs salvos para atualizar os ícones
+  const loadSavedIds = async () => {
+    try {
+      const list = await listService.getSavedList()
+      setSavedIds(new Set(list.map((item) => item.professionalId)))
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  // Executar busca
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    setLoading(true)
+    try {
+      const resp = await searchService.searchProfessionals({
+        termo,
+        localidade,
+        categoria: categoria === 'Todos' ? undefined : categoria,
+      })
+      setResults(resp.results)
+      setTotalResults(resp.total)
+      setIsDemoMode(resp.isDemoMode)
+      setVisibleCount(6)
+    } catch (err: any) {
+      toast({
+        title: 'Erro na busca',
+        description: err.message || 'Não foi possível buscar profissionais.',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Primeira carga
+  useEffect(() => {
+    handleSearch()
+    loadSavedIds()
   }, [])
 
-  // Format CEP mask 00000-000
-  const handleCepChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value.replace(/\D/g, '').slice(0, 8)
-    if (raw.length > 5) {
-      setCep(`${raw.slice(0, 5)}-${raw.slice(5)}`)
-    } else {
-      setCep(raw)
+  // Atualizar quando clicar numa categoria rápida
+  const handleCategorySelect = (cat: string) => {
+    setCategoria(cat)
+    setLoading(true)
+    searchService
+      .searchProfessionals({
+        termo,
+        localidade,
+        categoria: cat === 'Todos' ? undefined : cat,
+      })
+      .then((resp) => {
+        setResults(resp.results)
+        setTotalResults(resp.total)
+        setIsDemoMode(resp.isDemoMode)
+        setVisibleCount(6)
+      })
+      .finally(() => setLoading(false))
+  }
+
+  // Salvar na lista interna
+  const handleToggleSave = async (pro: Professional) => {
+    if (!user) return
+    const isSaved = savedIds.has(pro.id)
+    setSavingId(pro.id)
+
+    try {
+      if (isSaved) {
+        await listService.removeByProfessionalId(pro.id)
+        savedIds.delete(pro.id)
+        setSavedIds(new Set(savedIds))
+        toast({
+          title: 'Removido da lista interna',
+          description: `${pro.nome} foi retirado da sua lista de acompanhamento.`,
+        })
+      } else {
+        await listService.saveProfessional(pro, { id: user.id, nome: user.nome }, 'Novo', '')
+        savedIds.add(pro.id)
+        setSavedIds(new Set(savedIds))
+        toast({
+          title: 'Salvo na sua lista!',
+          description: `${pro.nome} foi adicionado à lista para acompanhamento da equipe.`,
+        })
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Não foi possível alterar a lista',
+        description: err.message || 'Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingId(null)
     }
   }
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const params = new URLSearchParams()
-    if (searchTerm.trim()) params.append('termo', searchTerm.trim())
-    if (cep.trim()) params.append('cep', cep.trim())
-    navigate(`/pedido/novo?${params.toString()}`)
+  // Google Maps link generator
+  const getMapsUrl = (pro: Professional) => {
+    const q = encodeURIComponent(`${pro.nome} ${pro.endereco_completo} ${pro.cidade} ${pro.uf}`)
+    return `https://www.google.com/maps/search/?api=1&query=${q}`
   }
 
-  const testimonials = [
-    {
-      nome: 'Juliana Mendes',
-      cidade: 'Belo Horizonte, MG',
-      servico: 'Instalação de 4 Câmeras CFTV',
-      estrelas: 5,
-      comentario:
-        'Recebi 3 orçamentos no mesmo dia! O técnico Carlos foi pontual, organizou todos os cabos e me ensinou a usar o app no celular. Experiência fantástica!',
-      avatar: 'https://img.usecurling.com/ppl/thumbnail?gender=female&seed=12',
-    },
-    {
-      nome: 'Rodrigo Alencar',
-      cidade: 'São Paulo, SP',
-      servico: 'Troca de Quadro de Disjuntores',
-      estrelas: 5,
-      comentario:
-        'Meu chuveiro vivia desarmando. Pelo ServiçoJá achei um eletricista com certificação NR-10 que resolveu em menos de 2 horas. Muito seguro e transparente.',
-      avatar: 'https://img.usecurling.com/ppl/thumbnail?gender=male&seed=33',
-    },
-    {
-      nome: 'Patrícia Castro',
-      cidade: 'Rio de Janeiro, RJ',
-      servico: 'Manutenção de Portão Automático',
-      estrelas: 5,
-      comentario:
-        'Adorei o fato de não ficar recebendo dezenas de ligações chatas. No máximo 3 profissionais entram em contato pelo WhatsApp e você escolhe o melhor.',
-      avatar: 'https://img.usecurling.com/ppl/thumbnail?gender=female&seed=44',
-    },
-  ]
+  // WhatsApp link generator
+  const getWhatsAppUrl = (pro: Professional) => {
+    const text = encodeURIComponent(
+      `Olá ${pro.nome}! Encontrei o contato da sua empresa através de pesquisa de fornecedores e gostaria de solicitar um orçamento para um serviço.`,
+    )
+    return `https://wa.me/${pro.whatsapp}?text=${text}`
+  }
+
+  if (!user) {
+    return null
+  }
+
+  const visibleResults = results.slice(0, visibleCount)
 
   return (
-    <div className="flex flex-col w-full overflow-hidden">
-      {/* 1. HERO SECTION */}
-      <section className="relative min-h-[90vh] flex flex-col justify-center bg-gradient-to-b from-sky-50 via-emerald-50/20 to-slate-50 pt-6 pb-20">
-        {/* Subtle background decorative shapes */}
-        <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-gradient-to-tr from-green-200/20 to-sky-200/20 rounded-full blur-3xl pointer-events-none -z-10" />
-
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 w-full py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-            {/* Left Headline & Pitch */}
-            <div className="lg:col-span-7 flex flex-col gap-6 text-center lg:text-left">
-              {/* Trust Badges */}
-              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2 sm:gap-3">
-                <Badge
-                  variant="outline"
-                  className="bg-green-50 text-green-700 border-green-200 py-1.5 px-3 text-xs sm:text-sm font-semibold rounded-full flex items-center gap-1.5 shadow-xs"
-                >
-                  <ShieldCheck className="w-4 h-4 text-green-600" />
-                  Profissionais Verificados
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className="bg-sky-50 text-sky-700 border-sky-200 py-1.5 px-3 text-xs sm:text-sm font-semibold rounded-full flex items-center gap-1.5 shadow-xs"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-sky-600" />
-                  Até 3 orçamentos por pedido
-                </Badge>
-              </div>
-
-              {/* Main Headline */}
-              <div className="space-y-1">
-                <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-[1.15]">
-                  Encontre profissionais de confiança{' '}
-                  <span className="relative inline-block text-slate-900">
-                    para o seu dia a dia
-                    <span className="absolute left-0 bottom-1 w-full h-3 bg-green-400/30 -z-10 rounded-sm transform -rotate-1" />
-                  </span>
-                </h1>
-              </div>
-
-              <p className="text-base sm:text-lg text-slate-600 max-w-xl mx-auto lg:mx-0 leading-relaxed font-normal">
-                Compare orçamentos, escolha o melhor preço e contrate com segurança. Instalação de
-                câmeras, eletricistas, reparos e segurança eletrônica na sua região.
-              </p>
-
-              {/* 2. SEARCH BAR CARD */}
-              <div id="HeroSearch" className="w-full pt-2">
-                <form
-                  onSubmit={handleSearchSubmit}
-                  className="bg-white p-3 sm:p-4 rounded-2xl shadow-xl shadow-slate-200/80 border border-slate-200/80 flex flex-col sm:flex-row items-center gap-3 transition-shadow hover:shadow-2xl"
-                >
-                  <div className="relative flex-1 w-full">
-                    <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <Input
-                      type="text"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="O que você precisa? Ex: Câmeras CFTV, Eletricista..."
-                      className="pl-11 pr-4 py-6 rounded-xl border-slate-200 focus-visible:ring-green-500 text-sm sm:text-base font-medium placeholder:text-slate-400"
-                    />
-                  </div>
-
-                  <div className="relative w-full sm:w-44">
-                    <MapPin className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <Input
-                      type="text"
-                      value={cep}
-                      onChange={handleCepChange}
-                      placeholder="CEP 00000-000"
-                      maxLength={9}
-                      className="pl-11 pr-3 py-6 rounded-xl border-slate-200 focus-visible:ring-green-500 text-sm sm:text-base font-medium placeholder:text-slate-400"
-                    />
-                  </div>
-
-                  <Button
-                    type="submit"
-                    className="w-full sm:w-auto px-6 py-6 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold text-base shadow-lg shadow-green-600/25 hover:scale-[1.02] active:scale-95 transition whitespace-nowrap"
-                  >
-                    Buscar Profissionais
-                  </Button>
-                </form>
-
-                {/* Popular tags below search */}
-                <div className="flex flex-wrap items-center gap-2 mt-3 text-xs text-slate-500 justify-center lg:justify-start">
-                  <span className="font-semibold text-slate-600">Mais buscados:</span>
-                  <Link
-                    to="/pedido/novo?categoria=cameras-cftv"
-                    className="px-2.5 py-1 bg-white/80 hover:bg-white rounded-md border border-slate-200 hover:text-green-600 transition"
-                  >
-                    Instalação de Câmeras
-                  </Link>
-                  <Link
-                    to="/pedido/novo?categoria=eletricista"
-                    className="px-2.5 py-1 bg-white/80 hover:bg-white rounded-md border border-slate-200 hover:text-green-600 transition"
-                  >
-                    Quadro Elétrico
-                  </Link>
-                  <Link
-                    to="/pedido/novo?categoria=portao-automatico"
-                    className="px-2.5 py-1 bg-white/80 hover:bg-white rounded-md border border-slate-200 hover:text-green-600 transition"
-                  >
-                    Motor de Portão
-                  </Link>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Hero Visual Cards (Floating animation 3s) */}
-            <div className="lg:col-span-5 relative hidden lg:flex items-center justify-center min-h-[440px]">
-              {/* Backing glow circle */}
-              <div className="w-80 h-80 rounded-full bg-gradient-to-tr from-green-500/10 to-blue-500/10 absolute -z-10 blur-xl" />
-
-              {/* Stacked floating UI cards */}
-              <div className="relative w-full max-w-sm flex flex-col gap-4">
-                {/* Floating Card 1: Solicitação enviada */}
-                <div className="animate-float bg-white/95 backdrop-blur-md p-4 rounded-2xl border border-slate-200/80 shadow-lg shadow-slate-200/60 flex items-center gap-3.5 transform -translate-x-4">
-                  <div className="w-12 h-12 rounded-xl bg-green-100 text-green-700 flex items-center justify-center shrink-0">
-                    <CheckCircle2 className="w-6 h-6 stroke-[2.5]" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs font-bold uppercase tracking-wider text-green-600">
-                      Solicitação enviada
-                    </span>
-                    <span className="text-sm font-bold text-slate-800">
-                      Instalação de 4 Câmeras CFTV IP
-                    </span>
-                    <span className="text-xs text-slate-400">Belo Horizonte, MG • há 10 min</span>
-                  </div>
-                </div>
-
-                {/* Floating Card 2: Proposta recebida */}
-                <div className="animate-float-delayed bg-white/95 backdrop-blur-md p-4 rounded-2xl border border-green-200 shadow-xl shadow-green-900/5 flex items-center justify-between gap-3 transform translate-x-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-green-500 shrink-0">
-                      <img
-                        src="https://img.usecurling.com/ppl/thumbnail?gender=male&seed=2"
-                        alt="Carlos Lima"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-bold text-slate-900">Carlos Lima</span>
-                        <Badge className="bg-green-100 text-green-800 hover:bg-green-100 text-[10px] px-1.5 py-0 h-4">
-                          ✓ Pro
-                        </Badge>
-                      </div>
-                      <span className="text-xs text-slate-500">Técnico em CFTV e Eletricista</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-semibold text-slate-400 block">Proposta</span>
-                    <span className="text-base font-extrabold text-green-600">R$ 750,00</span>
-                  </div>
-                </div>
-
-                {/* Floating Card 3: Avaliação 5.0 */}
-                <div className="animate-float-slow bg-white/95 backdrop-blur-md p-4 rounded-2xl border border-slate-200/80 shadow-lg shadow-slate-200/60 flex items-center gap-3.5 transform -translate-x-2">
-                  <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
-                    <Star className="w-6 h-6 fill-amber-500 stroke-amber-500" />
-                  </div>
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm font-bold text-slate-900">Avaliação 5.0</span>
-                      <div className="flex text-amber-500">
-                        {'★★★★★'.split('').map((s, i) => (
-                          <span key={i} className="text-xs">
-                            {s}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-500 italic line-clamp-1">
-                      "Serviço impecável e sem fios aparentes!"
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
+    <div className="min-h-screen pb-16">
+      {/* Top Banner / Indicator: Modo Demonstração vs API Conectada */}
+      <div className="bg-slate-900 text-slate-100 border-b border-slate-800">
+        <div className="max-w-[1240px] mx-auto px-4 sm:px-6 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            {isDemoMode ? (
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                Modo Demonstração Ativo
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-green-500/20 text-green-300 font-bold border border-green-500/40">
+                <span className="w-2 h-2 rounded-full bg-green-400" />
+                Google Places API Conectada
+              </span>
+            )}
+            <span className="text-slate-400 hidden sm:inline">
+              {isDemoMode
+                ? 'Resultados baseados no dataset realista de prestadores brasileiros.'
+                : 'Buscando fornecedores em tempo real via Google Places.'}
+            </span>
           </div>
-        </div>
-      </section>
 
-      {/* 3. CATEGORIES SECTION (Anchor "Categorias") */}
-      <section id="Categorias" className="py-20 bg-white border-t border-slate-200/80">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
-          <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-4">
-            <div className="space-y-2">
-              <Badge className="bg-green-100 text-green-800 hover:bg-green-100 font-bold uppercase tracking-wider text-xs">
-                Especialidades
-              </Badge>
-              <h2 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-                O que você precisa hoje?
-              </h2>
-              <p className="text-slate-600 max-w-xl text-base">
-                Selecione uma categoria para descrever seu pedido e receber orçamentos de
-                profissionais certificados e avaliados.
-              </p>
-            </div>
+          {isDemoMode && user.papel === 'admin' && (
             <Link
-              to="/pedido/novo"
-              className="inline-flex items-center gap-2 text-sm font-bold text-green-600 hover:text-green-700 group whitespace-nowrap"
+              to="/admin"
+              className="text-green-400 hover:text-green-300 font-semibold flex items-center gap-1 hover:underline"
             >
-              Ver todas as categorias
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              <Key className="w-3.5 h-3.5" />
+              Configurar Chave Google Places no Painel
             </Link>
-          </div>
-
-          {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-44 bg-slate-100 rounded-2xl animate-pulse" />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {categories.map((cat) => (
-                <Link
-                  key={cat.id}
-                  to={`/pedido/novo?categoria=${cat.slug}`}
-                  className="group relative bg-slate-50/70 hover:bg-white p-6 rounded-2xl border border-slate-200 hover:border-green-400 shadow-card hover:shadow-card-hover transition-all duration-200 hover:-translate-y-1 flex flex-col justify-between"
-                >
-                  <div>
-                    <div
-                      className="w-13 h-13 rounded-xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110 duration-200"
-                      style={{ backgroundColor: `${cat.cor}15`, color: cat.cor }}
-                    >
-                      <CategoryIcon name={cat.icone} className="w-7 h-7 stroke-[2]" />
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-900 group-hover:text-green-600 transition-colors">
-                      {cat.nome}
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-2 line-clamp-2 leading-relaxed">
-                      {cat.descricao}
-                    </p>
-                  </div>
-
-                  <div className="mt-5 pt-3 border-t border-slate-200/60 flex items-center justify-between text-xs font-semibold text-slate-500 group-hover:text-green-600">
-                    <span>{cat.subcategorias?.length || 0} serviços</span>
-                    <span className="flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-                      Pedir Orçamento →
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
           )}
         </div>
-      </section>
+      </div>
 
-      {/* 4. HOW IT WORKS (Anchor "Como Funciona") */}
-      <section id="Como Funciona" className="py-20 bg-slate-50 border-t border-slate-200/80">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-2xl mx-auto mb-16 space-y-3">
-            <Badge className="bg-green-100 text-green-800 hover:bg-green-100 font-bold uppercase tracking-wider text-xs">
-              Passo a Passo
-            </Badge>
-            <h2 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-              Como funciona o ServiçoJá?
-            </h2>
-            <p className="text-slate-600 text-base">
-              Em apenas 3 etapas simples você resolve seu problema sem perder tempo com dezenas de
-              orçamentos desnecessários.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
-            {/* Step 1 */}
-            <div className="relative bg-white p-8 rounded-2xl shadow-card border border-slate-200 flex flex-col items-center text-center">
-              <div className="absolute -top-5 w-10 h-10 rounded-full bg-green-600 text-white font-extrabold text-sm flex items-center justify-center shadow-md">
-                1
+      {/* Header com Boas-vindas corporativas e Barra de Busca */}
+      <div className="bg-gradient-to-b from-white to-slate-100/60 border-b border-slate-200 py-8 px-4 sm:px-6">
+        <div className="max-w-[1240px] mx-auto">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-bold text-green-700 uppercase tracking-wider mb-1">
+                <Building className="w-3.5 h-3.5" />
+                <span>Base Interna de Fornecedores & Serviços</span>
               </div>
-              <div className="w-16 h-16 rounded-2xl bg-green-50 text-green-600 flex items-center justify-center mb-6 mt-2">
-                <FileText className="w-8 h-8 stroke-[1.8]" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-900 mb-2">Descreva o serviço</h3>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                Responda a perguntas rápidas sobre o seu imóvel, quantidade de pontos e horários
-                preferenciais para visita técnica.
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                Buscar Profissionais de Serviços
+              </h1>
+              <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+                Encontre empresas e técnicos de CFTV/câmeras, eletricistas, reparos e segurança
+                eletrônica para demandas internas da empresa.
               </p>
             </div>
 
-            {/* Step 2 */}
-            <div className="relative bg-white p-8 rounded-2xl shadow-card border border-slate-200 flex flex-col items-center text-center">
-              <div className="absolute -top-5 w-10 h-10 rounded-full bg-green-600 text-white font-extrabold text-sm flex items-center justify-center shadow-md">
-                2
-              </div>
-              <div className="w-16 h-16 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center mb-6 mt-2">
-                <MessageSquare className="w-8 h-8 stroke-[1.8]" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-900 mb-2">Receba até 3 orçamentos</h3>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                Apenas os 3 primeiros profissionais mais próximos e qualificados desbloqueiam o seu
-                contato diretamente no WhatsApp.
-              </p>
-            </div>
-
-            {/* Step 3 */}
-            <div className="relative bg-white p-8 rounded-2xl shadow-card border border-slate-200 flex flex-col items-center text-center">
-              <div className="absolute -top-5 w-10 h-10 rounded-full bg-green-600 text-white font-extrabold text-sm flex items-center justify-center shadow-md">
-                3
-              </div>
-              <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-6 mt-2">
-                <Award className="w-8 h-8 stroke-[1.8]" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-900 mb-2">Escolha e avalie</h3>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                Compare os perfis, portfólios e avaliações reais. Após a conclusão, avalie o
-                prestador e ajude a comunidade.
-              </p>
+            <div className="flex items-center gap-2">
+              <Button
+                asChild
+                variant="outline"
+                className="border-slate-300 text-slate-700 bg-white shadow-xs"
+              >
+                <Link to="/lista" className="flex items-center gap-2">
+                  <BookmarkCheck className="w-4 h-4 text-green-600" />
+                  <span>Ver Minha Lista Salva ({savedIds.size})</span>
+                </Link>
+              </Button>
             </div>
           </div>
 
-          <div className="mt-12 text-center">
-            <Button
-              asChild
-              className="bg-green-600 hover:bg-green-700 text-white font-bold py-6 px-8 rounded-xl text-base shadow-lg shadow-green-600/20 hover:scale-[1.02] active:scale-95 transition"
-            >
-              <Link to="/pedido/novo">Fazer Pedido de Serviço Agora</Link>
-            </Button>
+          {/* Search Box Form */}
+          <form
+            onSubmit={handleSearch}
+            className="bg-white p-3 sm:p-4 rounded-2xl shadow-md border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-3 items-center"
+          >
+            {/* Termo / Especialidade */}
+            <div className="md:col-span-5 relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Input
+                type="text"
+                placeholder="Ex: Câmeras IP, troca de disjuntor, cerca elétrica..."
+                value={termo}
+                onChange={(e) => setTermo(e.target.value)}
+                className="pl-10 h-12 rounded-xl bg-slate-50/70 border-slate-200 text-sm focus:bg-white"
+              />
+            </div>
+
+            {/* Localidade / Cidade ou CEP */}
+            <div className="md:col-span-4 relative">
+              <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Input
+                type="text"
+                placeholder="Cidade, bairro ou CEP (ex: São Paulo, BH...)"
+                value={localidade}
+                onChange={(e) => setLocalidade(e.target.value)}
+                className="pl-10 h-12 rounded-xl bg-slate-50/70 border-slate-200 text-sm focus:bg-white"
+              />
+            </div>
+
+            {/* Botão de Busca */}
+            <div className="md:col-span-3">
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full h-12 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold shadow-md shadow-green-600/20 flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Pesquisando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4" />
+                    <span>Buscar Profissionais</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
+
+          {/* Filtro de Categorias em Chips */}
+          <div className="flex items-center gap-2 mt-4 overflow-x-auto pb-2 scrollbar-none">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap flex items-center gap-1 mr-1">
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              Categorias:
+            </span>
+            {categories.map((cat) => {
+              const active = categoria === cat
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => handleCategorySelect(cat)}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-full transition whitespace-nowrap border ${
+                    active
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                      : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {cat}
+                </button>
+              )
+            })}
           </div>
         </div>
-      </section>
+      </div>
 
-      {/* 5. FOR PROFESSIONALS SECTION (Anchor "Para Profissionais") */}
-      <section id="Para Profissionais" className="py-20 bg-slate-900 text-white">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-            {/* Left Content */}
-            <div className="lg:col-span-7 space-y-6">
-              <Badge className="bg-green-500/20 text-green-400 border border-green-500/30 uppercase tracking-wider text-xs font-bold">
-                Parceiros de Sucesso
-              </Badge>
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight leading-tight">
-                Seja um profissional parceiro no ServiçoJá
-              </h2>
-              <p className="text-slate-300 text-base sm:text-lg leading-relaxed">
-                Aumente sua carteira de clientes sem mensalidades abusivas. Receba notificações de
-                pedidos abertos na sua região e fale direto pelo WhatsApp com o cliente.
-              </p>
+      {/* Main Results Container */}
+      <div className="max-w-[1240px] mx-auto px-4 sm:px-6 pt-8">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-6">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-slate-900">Profissionais Encontrados</h2>
+            <Badge variant="outline" className="bg-slate-100 text-slate-700 font-bold">
+              {totalResults} {totalResults === 1 ? 'resultado' : 'resultados'}
+            </Badge>
+          </div>
 
-              <div className="space-y-4 pt-2">
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <CheckCircle2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-white text-base">Receba pedidos da sua região</h4>
-                    <p className="text-sm text-slate-400">
-                      Filtre por distância em km e aceite apenas trabalhos convenientes para a sua
-                      rota.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <CheckCircle2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-white text-base">
-                      Escolha os serviços que atende
-                    </h4>
-                    <p className="text-sm text-slate-400">
-                      Configure suas especialidades (CFTV, Eletricista, Alarmes) e receba apenas
-                      demandas compatíveis.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <CheckCircle2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-white text-base">
-                      Divulgue portfólio e conquiste avaliações
-                    </h4>
-                    <p className="text-sm text-slate-400">
-                      Crie um perfil público profissional verificado com fotos de instalações e
-                      certificados técnicos.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-                <Button
-                  asChild
-                  className="bg-green-600 hover:bg-green-500 text-white font-bold py-6 px-8 rounded-xl text-base shadow-lg shadow-green-600/30 hover:scale-[1.02] active:scale-95 transition text-center"
-                >
-                  <Link to="/cadastro?papel=profissional">Quero ser profissional parceiro</Link>
-                </Button>
-                <Button
-                  asChild
-                  variant="outline"
-                  className="border-slate-700 bg-slate-800 text-white hover:bg-slate-700 py-6 px-6 rounded-xl font-semibold"
-                >
-                  <Link to="/pedidos-disponiveis">Ver Pedidos Disponíveis</Link>
-                </Button>
-              </div>
-            </div>
-
-            {/* Right Mock Card */}
-            <div className="lg:col-span-5">
-              <div className="bg-slate-800/90 border border-slate-700 p-6 rounded-3xl shadow-2xl relative overflow-hidden">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-700/80">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-green-500 animate-ping" />
-                    <span className="text-xs font-bold text-green-400 uppercase tracking-wider">
-                      Novo pedido agora
-                    </span>
-                  </div>
-                  <Badge variant="outline" className="border-slate-600 text-slate-300 text-xs">
-                    Há 12 min
-                  </Badge>
-                </div>
-
-                <div className="py-4 space-y-3">
-                  <div className="flex items-center gap-2 text-xs text-sky-400 font-semibold">
-                    <CategoryIcon name="Camera" className="w-4 h-4" />
-                    <span>Câmeras e CFTV • Instalação</span>
-                  </div>
-                  <h3 className="text-lg font-bold text-white">
-                    Instalação de 4 câmeras IP em residência
-                  </h3>
-                  <p className="text-xs text-slate-300 line-clamp-2">
-                    Passar fiação externa e configurar acesso remoto no celular da cliente...
-                  </p>
-                  <div className="flex items-center gap-3 text-xs text-slate-400 pt-1">
-                    <span className="flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-500" />
-                      Belo Horizonte, MG (a 4 km de você)
-                    </span>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slate-700/80 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">1 de 3 vagas preenchidas</span>
-                  <Button
-                    size="sm"
-                    className="bg-green-600 hover:bg-green-500 text-white font-bold rounded-lg shadow-sm"
-                    asChild
-                  >
-                    <Link to="/pedidos-disponiveis">Liberar Contato</Link>
-                  </Button>
-                </div>
-              </div>
-            </div>
+          <div className="text-xs text-slate-500 flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5 text-slate-400" />
+            <span>Contatos com link direto para WhatsApp e rota no Google Maps</span>
           </div>
         </div>
-      </section>
 
-      {/* 6. TESTIMONIALS */}
-      <section className="py-20 bg-white border-t border-slate-200">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-xl mx-auto mb-14 space-y-2">
-            <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 font-bold uppercase tracking-wider text-xs">
-              Depoimentos Reais
-            </Badge>
-            <h2 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-              Quem contratou, recomenda
-            </h2>
-            <p className="text-slate-600 text-sm sm:text-base">
-              Milhares de clientes satisfeitos encontrando os melhores especialistas para seus
-              lares.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {testimonials.map((t, idx) => (
+        {/* Loading Skeleton */}
+        {loading && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[1, 2, 3, 4, 5, 6].map((idx) => (
               <div
                 key={idx}
-                className="bg-slate-50 p-6 rounded-2xl border border-slate-200/80 shadow-card flex flex-col justify-between"
+                className="bg-white rounded-2xl p-5 border border-slate-200 space-y-4 shadow-xs"
               >
-                <div>
-                  <div className="flex items-center gap-1 text-amber-500 mb-3">
-                    {Array.from({ length: t.estrelas }).map((_, i) => (
-                      <Star key={i} className="w-4 h-4 fill-amber-400 stroke-amber-400" />
-                    ))}
-                  </div>
-                  <p className="text-sm text-slate-700 italic leading-relaxed mb-6">
-                    "{t.comentario}"
-                  </p>
+                <div className="flex justify-between items-start">
+                  <Skeleton className="h-6 w-3/4 rounded" />
+                  <Skeleton className="h-6 w-12 rounded-full" />
                 </div>
-
-                <div className="flex items-center gap-3 pt-4 border-t border-slate-200">
-                  <img
-                    src={t.avatar}
-                    alt={t.nome}
-                    className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                  />
-                  <div className="flex flex-col">
-                    <span className="text-sm font-bold text-slate-900">{t.nome}</span>
-                    <span className="text-xs text-slate-500">{t.cidade}</span>
-                    <span className="text-[11px] font-medium text-green-700">{t.servico}</span>
-                  </div>
+                <Skeleton className="h-4 w-1/2 rounded" />
+                <Skeleton className="h-12 w-full rounded" />
+                <div className="flex gap-2">
+                  <Skeleton className="h-8 flex-1 rounded-lg" />
+                  <Skeleton className="h-8 flex-1 rounded-lg" />
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      </section>
+        )}
 
-      {/* 7. BOTTOM CTA BANNER */}
-      <section className="py-16 bg-gradient-to-r from-green-600 via-emerald-600 to-green-700 text-white relative overflow-hidden">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 relative z-10 flex flex-col md:flex-row items-center justify-between gap-8 text-center md:text-left">
-          <div className="space-y-2 max-w-xl">
-            <h3 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight">
-              Pronto para encontrar seu profissional?
+        {/* Empty State */}
+        {!loading && results.length === 0 && (
+          <div className="bg-white rounded-3xl p-10 text-center border border-slate-200 max-w-lg mx-auto shadow-xs my-8">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4">
+              <Search className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-2">
+              Nenhum profissional encontrado
             </h3>
-            <p className="text-green-100 text-base">
-              Publique seu pedido grátis em menos de 2 minutos e receba até 3 orçamentos no seu
-              WhatsApp.
+            <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+              Não encontramos resultados para os termos pesquisados. Tente limpar os filtros ou
+              buscar por cidades maiores como "São Paulo", "Belo Horizonte" ou "Rio de Janeiro".
             </p>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setTermo('')
+                setLocalidade('')
+                setCategoria('Todos')
+                searchService.searchProfessionals({}).then((r) => {
+                  setResults(r.results)
+                  setTotalResults(r.total)
+                })
+              }}
+              className="rounded-xl border-slate-300"
+            >
+              Limpar Filtros e Ver Todos
+            </Button>
           </div>
+        )}
 
-          <Button
-            asChild
-            size="lg"
-            className="bg-white hover:bg-slate-100 text-green-700 font-extrabold px-8 py-7 rounded-xl text-lg shadow-xl shadow-green-900/30 hover:scale-[1.02] active:scale-95 transition"
-          >
-            <Link to="/pedido/novo">Solicitar Orçamento Grátis</Link>
-          </Button>
-        </div>
-      </section>
+        {/* Cards Grid */}
+        {!loading && results.length > 0 && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {visibleResults.map((pro) => {
+                const isSaved = savedIds.has(pro.id)
+                const isSaving = savingId === pro.id
+
+                return (
+                  <div
+                    key={pro.id}
+                    className="bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md transition flex flex-col justify-between overflow-hidden group"
+                  >
+                    {/* Header do Card */}
+                    <div className="p-5 pb-3">
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <Badge
+                            variant="secondary"
+                            className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold mb-1.5"
+                          >
+                            {pro.categoria}
+                          </Badge>
+                          <Link
+                            to={`/profissional/${pro.id}`}
+                            className="text-base font-black text-slate-900 group-hover:text-green-700 transition line-clamp-1 block"
+                            title={pro.nome}
+                          >
+                            {pro.nome}
+                          </Link>
+                        </div>
+
+                        {/* Botão de Salvar na Lista */}
+                        <button
+                          type="button"
+                          disabled={isSaving}
+                          onClick={() => handleToggleSave(pro)}
+                          className={`p-2 rounded-xl transition border shadow-xs ${
+                            isSaved
+                              ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+                              : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+                          }`}
+                          title={isSaved ? 'Salvo na lista interna' : 'Salvar na lista interna'}
+                          aria-label="Salvar na lista"
+                        >
+                          {isSaved ? (
+                            <BookmarkCheck className="w-4 h-4 fill-green-600 text-green-600" />
+                          ) : (
+                            <Bookmark className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Avaliação e Localização */}
+                      <div className="flex items-center gap-3 text-xs text-slate-600 mb-3">
+                        <div className="flex items-center gap-1 font-bold text-amber-600">
+                          <Star className="w-3.5 h-3.5 fill-amber-400 stroke-amber-400" />
+                          <span>{pro.avaliacao.toFixed(1)}</span>
+                          <span className="text-slate-400 font-normal">
+                            ({pro.total_avaliacoes})
+                          </span>
+                        </div>
+                        <span className="text-slate-300">•</span>
+                        <div className="flex items-center gap-1 text-slate-500 truncate">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate">
+                            {pro.bairro}, {pro.cidade} - {pro.uf}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Descrição curta */}
+                      <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed mb-3">
+                        {pro.descricao}
+                      </p>
+
+                      {/* Tags de especialidade */}
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {pro.especialidades.slice(0, 3).map((esp, i) => (
+                          <span
+                            key={i}
+                            className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium"
+                          >
+                            {esp}
+                          </span>
+                        ))}
+                        {pro.especialidades.length > 3 && (
+                          <span className="text-[10px] text-slate-400 py-0.5 font-medium">
+                            +{pro.especialidades.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Rodapé com Ações Rápidas */}
+                    <div className="px-5 py-3.5 bg-slate-50/80 border-t border-slate-100 flex flex-col gap-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* WhatsApp Clicável */}
+                        <a
+                          href={getWhatsAppUrl(pro)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition"
+                          title={`Chamar ${pro.nome} no WhatsApp`}
+                        >
+                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                            <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.698c.993.541 1.939.813 2.796.813 3.183 0 5.768-2.587 5.768-5.766-.001-3.182-2.587-5.768-5.768-5.766zm9.969 5.766c0 5.514-4.486 10-10 10-1.745 0-3.414-.452-4.887-1.309l-5.113 1.371 1.396-5.011c-.961-1.533-1.396-3.27-1.396-5.051 0-5.514 4.486-10 10-10 5.514 0 10 4.486 10 10z" />
+                          </svg>
+                          <span>WhatsApp</span>
+                        </a>
+
+                        {/* Ver no Google Maps */}
+                        <a
+                          href={getMapsUrl(pro)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold text-xs shadow-2xs transition"
+                          title="Abrir localização no Google Maps"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Google Maps</span>
+                        </a>
+                      </div>
+
+                      {/* Link Detalhes Completos */}
+                      <Link
+                        to={`/profissional/${pro.id}`}
+                        className="text-center text-xs font-semibold text-slate-500 hover:text-green-700 py-1 transition flex items-center justify-center gap-1"
+                      >
+                        <span>Ver detalhes e contatos completos</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </Link>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Botão Carregar Mais */}
+            {visibleCount < results.length && (
+              <div className="mt-8 text-center">
+                <Button
+                  variant="outline"
+                  onClick={() => setVisibleCount((prev) => prev + 6)}
+                  className="rounded-xl px-6 py-5 border-slate-300 font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Carregar mais profissionais ({results.length - visibleCount} restantes)
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,25 +1,16 @@
 import React from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { RouteGuard } from '@/components/RouteGuard'
 import Layout from '@/components/Layout'
 import { Toaster } from '@/components/ui/toaster'
 
-// Pages
+// Páginas do Sistema Fechado B2B
 import Index from '@/pages/Index'
-import Register from '@/pages/Register'
 import Login from '@/pages/Login'
-import NewRequestWizard from '@/pages/NewRequest'
-import RequestDetail from '@/pages/RequestDetail'
-import ClientDashboard from '@/pages/ClientDashboard'
-import ProviderDashboard from '@/pages/ProviderDashboard'
-import AvailableRequests from '@/pages/AvailableRequests'
-import PublicProviderProfile from '@/pages/PublicProviderProfile'
-import ReviewPage from '@/pages/ReviewPage'
-import AdminOverview from '@/pages/AdminOverview'
-import AdminUsers from '@/pages/AdminUsers'
-import AdminCategories from '@/pages/AdminCategories'
-import AdminReports from '@/pages/AdminReports'
+import ProfessionalDetail from '@/pages/ProfessionalDetail'
+import InternalList from '@/pages/InternalList'
+import AdminPage from '@/pages/AdminPage'
 import NotFound from '@/pages/NotFound'
 
 export default function App() {
@@ -28,83 +19,65 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Layout />}>
-            {/* Public Routes */}
-            <Route index element={<Index />} />
-            <Route path="cadastro" element={<Register />} />
+            {/* Tela de Autenticação Única Corporativa */}
             <Route path="entrar" element={<Login />} />
-            <Route path="pedido/novo" element={<NewRequestWizard />} />
-            <Route path="perfil/:providerProfileId" element={<PublicProviderProfile />} />
-            <Route path="pedido/:id" element={<RequestDetail />} />
 
-            {/* Client Protected Routes */}
+            {/* Rotas Protegidas — Requerem autenticação de funcionário/admin */}
             <Route
-              path="painel/cliente"
+              index
               element={
-                <RouteGuard allowedRoles={['cliente', 'admin']}>
-                  <ClientDashboard />
-                </RouteGuard>
-              }
-            />
-            <Route
-              path="avaliar/:requestId/:providerId"
-              element={
-                <RouteGuard allowedRoles={['cliente', 'admin']}>
-                  <ReviewPage />
+                <RouteGuard>
+                  <Index />
                 </RouteGuard>
               }
             />
 
-            {/* Provider Protected Routes */}
+            {/* Detalhe do Profissional */}
             <Route
-              path="painel/profissional"
+              path="profissional/:id"
               element={
-                <RouteGuard allowedRoles={['profissional', 'admin']}>
-                  <ProviderDashboard />
-                </RouteGuard>
-              }
-            />
-            <Route
-              path="pedidos-disponiveis"
-              element={
-                <RouteGuard allowedRoles={['profissional', 'admin']}>
-                  <AvailableRequests />
+                <RouteGuard>
+                  <ProfessionalDetail />
                 </RouteGuard>
               }
             />
 
-            {/* Admin Protected Routes */}
+            {/* Minha Lista / Follow-up Interno */}
+            <Route
+              path="lista"
+              element={
+                <RouteGuard>
+                  <InternalList />
+                </RouteGuard>
+              }
+            />
+            {/* Alias /meus-contatos redireciona ou usa a mesma lista */}
+            <Route
+              path="meus-contatos"
+              element={
+                <RouteGuard>
+                  <InternalList />
+                </RouteGuard>
+              }
+            />
+
+            {/* Administração — Acesso restrito ao Dono / Admin */}
             <Route
               path="admin"
               element={
                 <RouteGuard allowedRoles={['admin']}>
-                  <AdminOverview />
+                  <AdminPage />
                 </RouteGuard>
               }
             />
-            <Route
-              path="admin/usuarios"
-              element={
-                <RouteGuard allowedRoles={['admin']}>
-                  <AdminUsers />
-                </RouteGuard>
-              }
-            />
-            <Route
-              path="admin/categorias"
-              element={
-                <RouteGuard allowedRoles={['admin']}>
-                  <AdminCategories />
-                </RouteGuard>
-              }
-            />
-            <Route
-              path="admin/relatorios"
-              element={
-                <RouteGuard allowedRoles={['admin']}>
-                  <AdminReports />
-                </RouteGuard>
-              }
-            />
+
+            {/* Redirecionamento de rotas antigas de marketplace que morreram */}
+            <Route path="cadastro" element={<Navigate to="/entrar" replace />} />
+            <Route path="pedido/*" element={<Navigate to="/" replace />} />
+            <Route path="painel/*" element={<Navigate to="/" replace />} />
+            <Route path="pedidos-disponiveis" element={<Navigate to="/" replace />} />
+            <Route path="perfil/*" element={<Navigate to="/" replace />} />
+            <Route path="avaliar/*" element={<Navigate to="/" replace />} />
 
             {/* 404 Fallback */}
             <Route path="*" element={<NotFound />} />

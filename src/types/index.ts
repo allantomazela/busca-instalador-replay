@@ -1,115 +1,63 @@
-export type UserRole = 'cliente' | 'profissional' | 'admin'
+export type UserRole = 'admin' | 'funcionario'
 
 export interface User {
   id: string
   nome: string
   email: string
-  telefone: string
   papel: UserRole
+  ativo: boolean
+  data_criacao: string
   foto?: string
-  data_criacao: string
-  banido: boolean
+  telefone?: string
 }
 
-export interface ProviderProfile {
-  user_id: string
-  bio: string
-  categorias: string[] // slugs
-  cidade: string
-  uf: string
-  raio_km: number
-  documentos_validados: boolean
-  avaliacao_media: number
+export type ProfessionalCategory =
+  | 'CFTV e Câmeras'
+  | 'Eletricista'
+  | 'Reparos Gerais'
+  | 'Segurança Eletrônica'
+
+export interface Professional {
+  id: string
+  nome: string
+  categoria: ProfessionalCategory
+  especialidades: string[]
+  avaliacao: number
   total_avaliacoes: number
-  certificados: { nome: string; url?: string }[]
-  portfolio: { id: string; url: string; titulo: string }[]
-  tipo_atuacao?: 'Pessoa Física' | 'MEI' | 'Empresa'
-  cnpj?: string
-}
-
-export type QuestionType = 'select' | 'boolean' | 'text' | 'textarea' | 'number'
-
-export interface DynamicQuestion {
-  id: string
-  pergunta: string
-  tipo: QuestionType
-  opcoes?: string[]
-  obrigatorio?: boolean
-  ajuda?: string
-}
-
-export interface Subcategory {
-  id: string
-  categoria_id: string
-  nome: string
-  slug: string
-  perguntas_personalizadas: DynamicQuestion[]
-}
-
-export interface Category {
-  id: string
-  nome: string
-  slug: string
-  icone: string
-  cor: string
-  descricao: string
-  subcategorias: Subcategory[]
-}
-
-export type RequestStatus = 'aberto' | 'em_negociacao' | 'fechado' | 'cancelado'
-
-export interface ServiceRequest {
-  id: string
-  cliente_id: string
-  categoria_id: string
-  subcategoria_id: string
-  titulo: string
-  descricao: string
-  respostas_dinamicas: Record<string, any>
-  cep: string
-  logradouro: string
-  numero: string
-  complemento?: string
-  bairro: string
-  cidade: string
-  estado: string
-  latitude?: number
-  longitude?: number
-  fotos: string[]
-  horario_contato: string
-  horario_visita: string
-  status: RequestStatus
-  data_criacao: string
-  propostas_count: number
-  desbloqueado_por?: string[] // provider user ids
-}
-
-export type ProposalStatus = 'enviada' | 'aceita' | 'recusada'
-
-export interface Proposal {
-  id: string
-  request_id: string
-  provider_id: string
-  valor_estimado: number
-  mensagem: string
-  data_envio: string
-  status: ProposalStatus
-}
-
-export interface Review {
-  id: string
-  request_id: string
-  cliente_id: string
-  provider_id: string
-  nota: number // 1 to 5
-  comentario: string
-  data: string
-}
-
-export interface CepInfo {
-  cep: string
-  logradouro: string
+  telefone: string
+  whatsapp: string // Formato numérico para wa.me, ex: '5511999998888'
+  email?: string
+  site?: string
+  endereco_completo: string
   bairro: string
   cidade: string
   uf: string
+  cep?: string
+  horario_funcionamento?: string
+  descricao: string
+  verificado_google?: boolean
+  preco_nivel?: '$' | '$$' | '$$$'
+  fonte: 'demo' | 'google_places'
+}
+
+export type FollowUpStatus = 'Novo' | 'Contatado' | 'Em negociação' | 'Fechado' | 'Descartado'
+
+export interface SavedProfessionalItem {
+  id: string // id do registro salvo
+  professionalId: string
+  professional: Professional
+  status: FollowUpStatus
+  notas: string
+  data_salvo: string
+  ultima_atualizacao: string
+  salvo_por: {
+    userId: string
+    nome: string
+  }
+}
+
+export interface GoogleApiConfig {
+  apiKey: string
+  isEnabled: boolean
+  lastTested?: string
 }

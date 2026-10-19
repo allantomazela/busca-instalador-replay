@@ -1,12 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { User } from '@/types'
-import { api } from '@/services/api'
+import { authService } from '@/services/authService'
 
 interface AuthContextType {
   user: User | null
   loading: boolean
   login: (email: string, pass: string) => Promise<User>
-  register: (params: Parameters<typeof api.registerUser>[0]) => Promise<User>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
 }
@@ -19,7 +18,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUser = async () => {
     try {
-      const current = await api.getCurrentUser()
+      const current = await authService.getCurrentUser()
       setUser(current)
     } catch {
       setUser(null)
@@ -33,24 +32,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   const login = async (email: string, pass: string) => {
-    const logged = await api.login(email, pass)
+    const logged = await authService.login(email, pass)
     setUser(logged)
     return logged
   }
 
-  const register = async (params: Parameters<typeof api.registerUser>[0]) => {
-    const registered = await api.registerUser(params)
-    setUser(registered)
-    return registered
-  }
-
   const logout = async () => {
-    await api.logout()
+    await authService.logout()
     setUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )
